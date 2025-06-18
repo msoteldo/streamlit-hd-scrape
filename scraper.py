@@ -4,6 +4,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import pandas as pd
 
 _driver = None  # module-level private variable for caching driver
@@ -20,6 +21,7 @@ def get_driver():
 
         service = Service(ChromeDriverManager(driver_version="120.0.6099.224").install())
         _driver = webdriver.Chrome(service=service, options=options)
+        _driver.implicitly_wait(0)  # Disable implicit waits for performance
     return _driver
 
 def scrape_product_info(sku: str):
@@ -28,34 +30,43 @@ def scrape_product_info(sku: str):
     driver.get(url)
     print(f"[INFO] Visiting {url}")
 
-    # Wait explicitly until product name is present (page fully loaded)
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "h1.product-name"))
-    )
+    # Wait for product name (main indicator page is ready)
+    try:
+        name = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "h1.product-name"))
+        ).text
+    except TimeoutException:
+        return pd.DataFrame([{
+            "SKU": sku,
+            "Name": "Error",
+            "Description": "Page did not load in time",
+            "Price": "",
+            "Stock Available": "",
+            "URL": url
+        }])
 
     # Close popup if it appears
     try:
-        close_icon = WebDriverWait(driver, 5).until(
+        close_icon = WebDriverWait(driver, 3).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "dialogStore--icon--highlightOff"))
         )
         close_icon.click()
-    except:
+    except TimeoutException:
         pass
 
-    # Get product info from that same page
+    # Description
     try:
-        name = driver.find_element(By.CSS_SELECTOR, "h1.product-name").text
-    except:
-        name = "Not found"
-
-    try:
-        desc_elem = driver.find_element(By.CSS_SELECTOR, "p.MuiTypography-root.sc-hsWlPz.juosUc.sc-hrDvXV.iuUlyx.MuiTypography-body1")
-        description = desc_elem.text
-    except:
+        description = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "p.MuiTypography-root.sc-hsWlPz.juosUc.sc-hrDvXV.iuUlyx.MuiTypography-body1"))
+        ).text
+    except TimeoutException:
         description = "Not found"
 
+    # Price
     try:
-        price_elem = driver.find_element(By.CSS_SELECTOR, "p.product-price")
+        price_elem = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "p.product-price"))
+        )
         js_script = """
         var element = arguments[0];
         var mainText = '';
@@ -75,14 +86,17 @@ def scrape_product_info(sku: str):
         return mainText + '.' + supText;
         """
         price = round(float(driver.execute_script(js_script, price_elem).replace(',', '')), 2)
-    except:
+    except (TimeoutException, ValueError):
         price = "Not found"
 
+    # Stock
     try:
-        stock_elem = driver.find_element(By.XPATH, "//p[contains(text(), 'disponibles')]")
+        stock_elem = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH, "//p[contains(text(), 'disponibles')]"))
+        )
         stock_digits = ''.join(c for c in stock_elem.text if c.isdigit())
         stock = int(stock_digits) if stock_digits else "Not found"
-    except:
+    except TimeoutException:
         stock = "Not found"
 
     return pd.DataFrame([{
