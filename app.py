@@ -19,8 +19,11 @@ if st.button("Clear Table"):
 
 sku_input = st.text_area("Enter SKUs (one per line):")
 
-# Add batch size selector for performance tuning
-batch_size = st.selectbox("Batch size (concurrent scraping):", [1, 2, 3, 4, 5], index=2)
+# Add batch size selector for performance tuning (reduced for reliability)
+batch_size = st.selectbox("Batch size (concurrent scraping):", [1, 2, 3], index=1)
+
+# Add retry option
+enable_retries = st.checkbox("Enable automatic retries for failed SKUs", value=True)
 
 table_placeholder = st.empty()
 if not st.session_state.products_df.empty:
