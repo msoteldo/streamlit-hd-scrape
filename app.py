@@ -1,17 +1,17 @@
 import streamlit as st
 from scraper import scrape_product_info
 import pandas as pd
-import time
 
 st.title("Home Depot Product Info by SKU")
 
-if "products_df" not in st.session_state:
+# Initialize products_df if not present or cleared
+if "products_df" not in st.session_state or st.session_state.get("clear_table", False):
     st.session_state.products_df = pd.DataFrame()
+    st.session_state.clear_table = False  # reset the flag
 
-# Button to clear the table
+# Clear table button sets the clear flag
 if st.button("Clear Table"):
-    st.session_state.products_df = pd.DataFrame()
-    st.experimental_rerun()  # Refresh to clear UI immediately
+    st.session_state.clear_table = True
 
 sku_input = st.text_area("Enter SKUs (one per line):")
 
