@@ -99,43 +99,96 @@ def wait_for_page_stable(driver, timeout=10):
     except TimeoutException:
         return False
 
+def check_if_product_exists(driver, sku):
+    """Quick check to determine if product exists on the page"""
+    try:
+        # Check for common "not found" indicators first
+        not_found_indicators = [
+            "No se encontraron resultados",
+            "No encontramos productos",
+            "página no encontrada",
+            "404",
+            "not found",
+            "no results",
+            "sin resultados"
+        ]
+        
+        page_text = driver.find_element(By.TAG_NAME, "body").text.lower()
+        for indicator in not_found_indicators:
+            if indicator in page_text:
+                print(f"[INFO] Product {sku} does not exist - found indicator: {indicator}")
+                return False
+        
+        # Check for search results page vs product page
+        search_indicators = [
+            ".search-results",
+            ".no-results",
+            ".search-no-results",
+            "[data-testid='search-results']"
+        ]
+        
+        for selector in search_indicators:
+            try:
+                if driver.find_elements(By.CSS_SELECTOR, selector):
+                    print(f"[INFO] Product {sku} redirected to search results - likely doesn't exist")
+                    return False
+            except:
+                continue
+                
+        return True
+    except Exception:
+        return True  # If we can't determine, assume it exists and continue
+
 def scrape_product_info_single(sku: str, retry_count=0):
-    """Scrape a single product with enhanced reliability"""
+    """Scrape a single product with enhanced reliability and fast failure detection"""
     url = f"https://www.homedepot.com.mx/s/{sku}"
     driver = None
-    max_retries = 2
+    max_retries = 1  # Reduced retries to prevent hanging
     
     try:
         start_time = time.time()
         driver = get_driver()
         
-        # Add random delay to avoid rate limiting
+        # Add random delay to avoid rate limiting (reduced for non-existent products)
         if retry_count == 0:
-            time.sleep(random.uniform(0.5, 2.0))
+            time.sleep(random.uniform(0.2, 1.0))
         
         print(f"[INFO] Visiting {url} (attempt {retry_count + 1})")
         
         try:
             driver.get(url)
         except WebDriverException as e:
-            if retry_count < max_retries:
-                print(f"[WARN] Page load failed for {sku}, retrying...")
-                return scrape_product_info_single(sku, retry_count + 1)
-            else:
-                raise e
+            print(f"[ERROR] Page load failed for {sku}: {str(e)}")
+            return pd.DataFrame([{
+                "SKU": sku,
+                "Name": "Error",
+                "Description": f"Page load failed: {str(e)[:50]}",
+                "Price": "",
+                "Stock Available": "",
+                "URL": url
+            }])
         
-        # Wait for page to be stable
-        if not wait_for_page_stable(driver, timeout=15):
-            if retry_count < max_retries:
-                print(f"[WARN] Page not stable for {sku}, retrying...")
-                return scrape_product_info_single(sku, retry_count + 1)
+        # Quick stability check with shorter timeout
+        if not wait_for_page_stable(driver, timeout=8):
+            print(f"[WARN] Page not stable for {sku} within 8 seconds")
         
-        # Progressive timeout strategy - start with longer waits, reduce as we go
-        wait_long = WebDriverWait(driver, 12)
-        wait_medium = WebDriverWait(driver, 8)
-        wait_short = WebDriverWait(driver, 4)
+        # FAST CHECK: Does this product exist at all?
+        if not check_if_product_exists(driver, sku):
+            return pd.DataFrame([{
+                "SKU": sku,
+                "Name": "Not Found",
+                "Description": "Product does not exist or was not found",
+                "Price": "",
+                "Stock Available": "",
+                "URL": url
+            }])
+        
+        # Reduced timeout strategy for faster failure detection
+        wait_medium = WebDriverWait(driver, 6)  # Reduced from 12
+        wait_short = WebDriverWait(driver, 3)   # Reduced from 8
+        wait_quick = WebDriverWait(driver, 1.5) # New quick timeout
 
-        # Wait for product name (main indicator page is ready)
+        # Wait for product name with shorter timeout
         name = None
         try:
             # Try multiple selectors for product name
@@ -143,16 +196,18 @@ def scrape_product_info_single(sku: str, retry_count=0):
                 "h1.product-name",
                 "h1[data-testid='product-name']",
                 ".product-title h1",
-                "h1.product-title"
+                "h1.product-title",
+                ".product-name"
             ]
             
             for selector in selectors:
                 try:
-                    name_element = wait_long.until(
+                    name_element = wait_medium.until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, selector))
                     )
                     name = name_element.text.strip()
                     if name:
+                        print(f"[INFO] Found product name for {sku}: {name[:50]}...")
                         break
                 except TimeoutException:
                     continue
@@ -161,50 +216,45 @@ def scrape_product_info_single(sku: str, retry_count=0):
                 raise TimeoutException("Product name not found with any selector")
                 
         except TimeoutException:
-            if retry_count < max_retries:
-                print(f"[WARN] Product name not found for {sku}, retrying...")
-                return scrape_product_info_single(sku, retry_count + 1)
-            else:
-                return pd.DataFrame([{
-                    "SKU": sku,
-                    "Name": "Error",
-                    "Description": "Product name not found - page may not have loaded properly",
-                    "Price": "",
-                    "Stock Available": "",
-                    "URL": url
-                }])
+            print(f"[WARN] Product name not found for {sku} - likely doesn't exist")
+            return pd.DataFrame([{
+                "SKU": sku,
+                "Name": "Not Found",
+                "Description": "Product name not found - product may not exist",
+                "Price": "",
+                "Stock Available": "",
+                "URL": url
+            }])
 
-        # Close popup if it appears (multiple attempts)
+        # Close popup if it appears (quick attempt only)
         popup_selectors = [
             ".dialogStore--icon--highlightOff",
             "[data-testid='close-button']",
-            ".close-button",
-            ".popup-close"
+            ".close-button"
         ]
         
         for selector in popup_selectors:
             try:
-                close_icon = wait_short.until(
+                close_icon = wait_quick.until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
                 )
                 close_icon.click()
-                time.sleep(0.5)  # Wait for popup to close
+                time.sleep(0.3)
                 break
             except TimeoutException:
                 continue
 
-        # Description with multiple selectors
+        # Description with reduced timeout
         description = "Not found"
         description_selectors = [
             "p.MuiTypography-root.sc-hsWlPz.juosUc.sc-hrDvXV.iuUlyx.MuiTypography-body1",
             ".product-description p",
-            "[data-testid='product-description']",
-            ".product-details p"
+            "[data-testid='product-description']"
         ]
         
         for selector in description_selectors:
             try:
-                desc_element = wait_medium.until(
+                desc_element = wait_short.until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, selector))
                 )
                 description = desc_element.text.strip()
@@ -213,23 +263,21 @@ def scrape_product_info_single(sku: str, retry_count=0):
             except TimeoutException:
                 continue
 
-        # Price with enhanced extraction
+        # Price with reduced timeout
         price = "Not found"
         try:
             price_selectors = [
                 "p.product-price",
                 ".price",
-                "[data-testid='price']",
-                ".product-price-container"
+                "[data-testid='price']"
             ]
             
             for selector in price_selectors:
                 try:
-                    price_elem = wait_medium.until(
+                    price_elem = wait_short.until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, selector))
                     )
                     
-                    # Enhanced price extraction script
                     js_script = """
                     var element = arguments[0];
                     var mainText = '';
@@ -258,7 +306,6 @@ def scrape_product_info_single(sku: str, retry_count=0):
                     
                     price_text = driver.execute_script(js_script, price_elem)
                     if price_text:
-                        # Clean and convert price
                         price_clean = ''.join(c for c in price_text if c.isdigit() or c == '.')
                         if price_clean:
                             price = round(float(price_clean.replace(',', '')), 2)
@@ -269,26 +316,18 @@ def scrape_product_info_single(sku: str, retry_count=0):
         except Exception:
             pass
 
-        # Stock with multiple selectors
+        # Stock with reduced timeout
         stock = "Not found"
         stock_selectors = [
             "//p[contains(text(), 'disponibles')]",
-            "//span[contains(text(), 'disponibles')]",
-            "//div[contains(text(), 'disponibles')]",
-            "[data-testid='stock-info']"
+            "//span[contains(text(), 'disponibles')]"
         ]
         
         for selector in stock_selectors:
             try:
-                if selector.startswith("//"):
-                    stock_elem = wait_medium.until(
-                        EC.presence_of_element_located((By.XPATH, selector))
-                    )
-                else:
-                    stock_elem = wait_medium.until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-                    )
-                
+                stock_elem = wait_short.until(
+                    EC.presence_of_element_located((By.XPATH, selector))
+                )
                 stock_digits = ''.join(c for c in stock_elem.text if c.isdigit())
                 if stock_digits:
                     stock = int(stock_digits)
@@ -324,24 +363,34 @@ def scrape_product_info_single(sku: str, retry_count=0):
             return_driver(driver)
 
 def scrape_product_info_batch(sku_list, max_workers=2):
-    """Scrape multiple products with controlled concurrency"""
+    """Scrape multiple products with controlled concurrency and timeout protection"""
     if len(sku_list) == 1:
         return scrape_product_info_single(sku_list[0])
     
     results = []
-    # Reduce concurrent workers for better reliability
     actual_workers = min(max_workers, len(sku_list), 2)
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=actual_workers) as executor:
         future_to_sku = {executor.submit(scrape_product_info_single, sku): sku for sku in sku_list}
         
-        for future in concurrent.futures.as_completed(future_to_sku):
+        for future in concurrent.futures.as_completed(future_to_sku, timeout=45):  # Global timeout
             sku = future_to_sku[future]
             try:
-                result = future.result(timeout=60)  # 60 second timeout per SKU
+                result = future.result(timeout=30)  # Per-SKU timeout reduced to 30s
                 results.append(result)
+                print(f"[INFO] Completed processing {sku}")
+            except concurrent.futures.TimeoutError:
+                print(f'[ERROR] SKU {sku} timed out after 30 seconds')
+                results.append(pd.DataFrame([{
+                    "SKU": sku,
+                    "Name": "Timeout",
+                    "Description": "Processing timed out - likely non-existent product",
+                    "Price": "",
+                    "Stock Available": "",
+                    "URL": f"https://www.homedepot.com.mx/s/{sku}"
+                }]))
             except Exception as exc:
-                print(f'SKU {sku} generated an exception: {exc}')
+                print(f'[ERROR] SKU {sku} generated an exception: {exc}')
                 results.append(pd.DataFrame([{
                     "SKU": sku,
                     "Name": "Error",
