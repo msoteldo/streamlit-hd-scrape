@@ -7,29 +7,33 @@ st.title("Home Depot Product Info by SKU")
 if "products_df" not in st.session_state:
     st.session_state.products_df = pd.DataFrame()
 
-sku = st.text_input("Enter SKU:")
+# Multiline text area for multiple SKUs, one per line
+sku_input = st.text_area("Enter SKUs (one per line):")
 
-# Placeholder for the data table
 table_placeholder = st.empty()
-
-# Show the current table in the placeholder
 if not st.session_state.products_df.empty:
     table_placeholder.dataframe(st.session_state.products_df)
 
-if st.button("Get Info"):
-    if sku.strip() == "":
-        st.warning("Please enter a valid SKU.")
+if st.button("Get Info for All SKUs"):
+    # Clean and split the input into a list of SKUs
+    sku_list = [sku.strip() for sku in sku_input.splitlines() if sku.strip()]
+    
+    if not sku_list:
+        st.warning("Please enter at least one valid SKU.")
     else:
-        with st.spinner("Scraping product info..."):
-            new_df = scrape_product_info(sku)
+        with st.spinner(f"Scraping info for {len(sku_list)} SKUs..."):
+            all_new_data = []
+            for sku in sku_list:
+                try:
+                    df = scrape_product_info(sku)
+                    all_new_data.append(df)
+                except Exception as e:
+                    st.error(f"Error scraping SKU {sku}: {e}")
 
-        # Update the cached dataframe by appending new data
-        st.session_state.products_df = pd.concat([st.session_state.products_df, new_df], ignore_index=True)
+            if all_new_data:
+                new_df = pd.concat(all_new_data, ignore_index=True)
+                st.session_state.products_df = pd.concat([st.session_state.products_df, new_df], ignore_index=True)
 
-        # Clear the old table (erase placeholder)
         table_placeholder.empty()
-
-        # Show updated table
         table_placeholder.dataframe(st.session_state.products_df)
-
-        st.success("Product info retrieved!")
+        st.success("All SKUs processed!")
