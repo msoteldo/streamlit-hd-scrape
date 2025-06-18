@@ -19,11 +19,8 @@ if st.button("Clear Table"):
 
 sku_input = st.text_area("Enter SKUs (one per line):")
 
-# Add batch size selector for performance tuning (reduced for reliability)
-batch_size = st.selectbox("Batch size (concurrent scraping):", [1, 2, 3], index=1)
-
-# Add retry option
-enable_retries = st.checkbox("Enable automatic retries for failed SKUs", value=True)
+# Add batch size selector for performance tuning
+batch_size = st.selectbox("Batch size (concurrent scraping):", [1, 2, 3, 4, 5], index=2)
 
 table_placeholder = st.empty()
 if not st.session_state.products_df.empty:
@@ -42,7 +39,7 @@ if st.button("Get Info for All SKUs"):
         total_skus = len(sku_list)
         processed = 0
         
-        # Process SKUs in batches with timeout protection
+        # Process SKUs in batches
         for i in range(0, len(sku_list), batch_size):
             batch = sku_list[i:i + batch_size]
             batch_num = (i // batch_size) + 1
@@ -51,13 +48,8 @@ if st.button("Get Info for All SKUs"):
             status_text.text(f"Processing batch {batch_num} of {total_batches} ({len(batch)} SKUs)...")
             
             try:
-                # Use batch scraping with timeout protection
-                start_time = time.time()
+                # Use batch scraping for concurrent processing
                 batch_df = scrape_product_info_batch(batch, max_workers=batch_size)
-                end_time = time.time()
-                
-                batch_time = end_time - start_time
-                avg_time_per_sku = batch_time / len(batch)
                 
                 if not batch_df.empty:
                     st.session_state.products_df = pd.concat([st.session_state.products_df, batch_df], ignore_index=True)
@@ -66,33 +58,14 @@ if st.button("Get Info for All SKUs"):
                 processed += len(batch)
                 progress_bar.progress(processed / total_skus)
                 
-                # Show batch completion info
-                success_count = len(batch_df[batch_df['Name'] != 'Error'][batch_df['Name'] != 'Not Found'][batch_df['Name'] != 'Timeout'])
-                st.info(f"Batch {batch_num} completed in {batch_time:.1f}s - {success_count}/{len(batch)} successful ({avg_time_per_sku:.1f}s per SKU)")
-                
             except Exception as e:
                 st.error(f"Error processing batch {batch_num}: {e}")
-                processed += len(batch)  # Still count as processed to avoid infinite loop
-                progress_bar.progress(processed / total_skus)
+                # Continue with next batch instead of stopping entirely
                 continue
         
         progress_bar.progress(1.0)
         status_text.text("✅ All SKUs processed!")
-        
-        # Show final summary
-        total_processed = len(st.session_state.products_df)
-        successful = len(st.session_state.products_df[
-            (st.session_state.products_df['Name'] != 'Error') & 
-            (st.session_state.products_df['Name'] != 'Not Found') & 
-            (st.session_state.products_df['Name'] != 'Timeout')
-        ])
-        not_found = len(st.session_state.products_df[st.session_state.products_df['Name'] == 'Not Found'])
-        errors = len(st.session_state.products_df[
-            (st.session_state.products_df['Name'] == 'Error') | 
-            (st.session_state.products_df['Name'] == 'Timeout')
-        ])
-        
-        st.success(f"Processing Complete! ✅ {successful} successful | ❌ {not_found} not found | ⚠️ {errors} errors/timeouts")
+        st.success(f"Successfully processed {len(st.session_state.products_df)} products!")
 
 # Add download button for results
 if not st.session_state.products_df.empty:
