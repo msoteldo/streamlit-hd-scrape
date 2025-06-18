@@ -35,7 +35,5 @@ if st.button("Get Info for All SKUs"):
                     table_placeholder.dataframe(st.session_state.products_df)
                 except Exception as e:
                     st.error(f"Error scraping SKU {sku}: {e}")
-        
-            progress_bar.progress(i / len(sku_list))
 
         st.success("All SKUs processed!")
