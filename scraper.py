@@ -5,7 +5,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
-import time
 
 _driver = None  # module-level private variable for caching driver
 
@@ -17,7 +16,7 @@ def get_driver():
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
-        options.binary_location = "/usr/bin/chromium"  # Set binary location explicitly on Streamlit Cloud
+        options.binary_location = "/usr/bin/chromium"  # Streamlit Cloud
 
         service = Service(ChromeDriverManager(driver_version="120.0.6099.224").install())
         _driver = webdriver.Chrome(service=service, options=options)
@@ -28,7 +27,11 @@ def scrape_product_info(sku: str):
     driver = get_driver()
     driver.get(url)
     print(f"[INFO] Visiting {url}")
-    time.sleep(2)
+
+    # Wait explicitly until product name is present (page fully loaded)
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "h1.product-name"))
+    )
 
     # Close popup if it appears
     try:
@@ -39,11 +42,9 @@ def scrape_product_info(sku: str):
     except:
         pass
 
-    time.sleep(2)
-
     # Get product info from that same page
     try:
-        name = driver.find_element(By.CLASS_NAME, "product-name").text
+        name = driver.find_element(By.CSS_SELECTOR, "h1.product-name").text
     except:
         name = "Not found"
 
@@ -63,7 +64,7 @@ def scrape_product_info(sku: str):
         for (var i = 0; i < element.childNodes.length; i++) {
             var node = element.childNodes[i];
             if (node.nodeType === Node.TEXT_NODE) {
-                mainText += node.textContent.trim();
+                mainText += node.textContent.trim();                
             } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'SUP') {
                 supCount++;
                 if (supCount === 2) {
