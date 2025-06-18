@@ -1,6 +1,10 @@
 import streamlit as st
-from scraper import scrape_product_info
+from scraper import scrape_product_info_batch, cleanup_drivers
 import pandas as pd
+import atexit
+
+# Register cleanup function to run when app exits
+atexit.register(cleanup_drivers)
 
 st.title("Home Depot Product Info by SKU")
 
@@ -15,6 +19,9 @@ if st.button("Clear Table"):
 
 sku_input = st.text_area("Enter SKUs (one per line):")
 
+# Add batch size selector for performance tuning
+batch_size = st.selectbox("Batch size (concurrent scraping):", [1, 2, 3, 4, 5], index=2)
+
 table_placeholder = st.empty()
 if not st.session_state.products_df.empty:
     table_placeholder.dataframe(st.session_state.products_df)
@@ -25,16 +32,47 @@ if st.button("Get Info for All SKUs"):
     if not sku_list:
         st.warning("Please enter at least one valid SKU.")
     else:
-        all_new_data = []
-
-        for i, sku in enumerate(sku_list, start=1):
-            with st.spinner(f"Scraping SKU {i} of {len(sku_list)}: {sku}..."):
-                try:
-                    df = scrape_product_info(sku)
-                    st.session_state.products_df = pd.concat([st.session_state.products_df, df], ignore_index=True)
+        # Process in batches for better performance and user feedback
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_skus = len(sku_list)
+        processed = 0
+        
+        # Process SKUs in batches
+        for i in range(0, len(sku_list), batch_size):
+            batch = sku_list[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(sku_list) + batch_size - 1) // batch_size
+            
+            status_text.text(f"Processing batch {batch_num} of {total_batches} ({len(batch)} SKUs)...")
+            
+            try:
+                # Use batch scraping for concurrent processing
+                batch_df = scrape_product_info_batch(batch, max_workers=batch_size)
+                
+                if not batch_df.empty:
+                    st.session_state.products_df = pd.concat([st.session_state.products_df, batch_df], ignore_index=True)
                     table_placeholder.dataframe(st.session_state.products_df)
-                except Exception as e:
-                    st.error(f"Error scraping SKU {sku}: {e}")
+                
+                processed += len(batch)
+                progress_bar.progress(processed / total_skus)
+                
+            except Exception as e:
+                st.error(f"Error processing batch {batch_num}: {e}")
+                # Continue with next batch instead of stopping entirely
+                continue
+        
+        progress_bar.progress(1.0)
+        status_text.text("✅ All SKUs processed!")
+        st.success(f"Successfully processed {len(st.session_state.products_df)} products!")
 
-
-        st.success("All SKUs processed!")
+# Add download button for results
+if not st.session_state.products_df.empty:
+    csv = st.session_state.products_df.to_csv(index=False)
+    st.download_button(
+        label="Download results as CSV",
+        data=csv,
+        file_name="home_depot_products.csv",
+        mime="text/csv"
+    )
