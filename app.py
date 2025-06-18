@@ -31,10 +31,11 @@ if st.button("Get Info for All SKUs"):
             with st.spinner(f"Scraping SKU {i} of {len(sku_list)}: {sku}..."):
                 try:
                     df = scrape_product_info(sku)
-                    all_new_data.append(df)
-                    # Append new data to session state immediately
-                    st.session_state.products_df = pd.concat([st.session_state.products_df] + all_new_data, ignore_index=True)
+                    st.session_state.products_df = pd.concat([st.session_state.products_df, df], ignore_index=True)
                     table_placeholder.dataframe(st.session_state.products_df)
                 except Exception as e:
                     st.error(f"Error scraping SKU {sku}: {e}")
+        
+            progress_bar.progress(i / len(sku_list))
+
         st.success("All SKUs processed!")
