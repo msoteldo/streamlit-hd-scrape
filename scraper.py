@@ -19,7 +19,7 @@ def scrape_product_info(sku: str, chromedriver_path: str):
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
 
-    service = Service(ChromeDriverManager().install())
+    service = Service(ChromeDriverManager(version="120.0.6099.224").install())
     driver = webdriver.Chrome(service=service, options=options)
 
     try:
