@@ -1,5 +1,4 @@
-google-chrome-stable
-chromium-chromedriver
+chromium
 fonts-liberation
 libnss3
 libgconf-2-4
