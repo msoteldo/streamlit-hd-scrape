@@ -19,7 +19,7 @@ def get_driver():
         options.add_argument('--disable-gpu')
         #options.binary_location = "/usr/bin/chromium"  # Streamlit Cloud
 
-        service = Service(ChromeDriverManager().install())
+        service = Service(ChromeDriverManager(driver_version="120.0.6099.224").install())
         _driver = webdriver.Chrome(service=service, options=options)
         _driver.implicitly_wait(0)  # Disable implicit waits for performance
     return _driver
