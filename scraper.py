@@ -6,6 +6,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import pandas as pd
+from datetime import datetime
+
 
 _driver = None  # module-level private variable for caching driver
 
@@ -105,5 +107,6 @@ def scrape_product_info(sku: str):
         "Description": description,
         "Price": price,
         "Stock Available": stock,
-        "URL": url
+        "URL": url,
+        "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }])
