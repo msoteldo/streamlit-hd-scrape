@@ -1,5 +1,0 @@
-venv/
-*.venv/
-__pycache__
-scraper_local.py
-app-test.py
