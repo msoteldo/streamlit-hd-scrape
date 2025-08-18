@@ -1,6 +1,6 @@
 import streamlit as st
-from scraper import scrape_product_info
-from publish import publish_products  # función que acepta lista de SKUs y devuelve [{SKU, item_id},...]
+from scraper_local import scrape_product_info
+from publish_test import publish_or_update_products  # función que acepta lista de SKUs y devuelve [{SKU, item_id},...]
 import pandas as pd
 import os
 
@@ -32,7 +32,7 @@ if st.button("Clear Table (also clears CSV)"):
     st.session_state.products_df.to_csv(CSV_FILE, index=False)
     st.rerun()
 
-# Actualizar todos los SKUs en CSV
+# --- Actualizar todos los SKUs en CSV ---
 if st.button("Update All SKUs in CSV"):
     sku_list = st.session_state.products_df["SKU"].dropna().unique()
 
@@ -44,6 +44,13 @@ if st.button("Update All SKUs in CSV"):
                 try:
                     df = scrape_product_info(sku)
 
+                    # Guardar Item_ID existente
+                    existing_item_id = st.session_state.products_df.loc[
+                        st.session_state.products_df["SKU"] == sku, "Item_ID"
+                    ].values
+                    if len(existing_item_id) > 0:
+                        df["Item_ID"] = existing_item_id[0]
+
                     # Reemplazar fila existente y añadir la nueva info
                     st.session_state.products_df = st.session_state.products_df[
                         st.session_state.products_df["SKU"] != sku
@@ -52,7 +59,6 @@ if st.button("Update All SKUs in CSV"):
                         [st.session_state.products_df, df], ignore_index=True
                     )
 
-                    # Actualizar tabla en vivo
                     table_placeholder.dataframe(st.session_state.products_df)
 
                 except Exception as e:
@@ -61,7 +67,8 @@ if st.button("Update All SKUs in CSV"):
         st.session_state.products_df.to_csv(CSV_FILE, index=False)
         st.success("All SKUs updated and saved to CSV!")
 
-# Agregar nuevos SKUs manualmente
+
+# --- Agregar nuevos SKUs manualmente ---
 st.subheader("Add New SKUs to CSV")
 new_skus = st.text_area("Enter SKUs (one per line):")
 
@@ -81,6 +88,11 @@ if st.button("Add SKUs"):
                 with st.spinner(f"Scraping new SKU {i} of {len(new_only_df)} — {sku}"):
                     try:
                         df = scrape_product_info(sku)
+
+                        # No hay Item_ID para nuevos SKUs
+                        if "Item_ID" not in df.columns:
+                            df["Item_ID"] = ""
+
                         st.session_state.products_df = pd.concat(
                             [st.session_state.products_df, df],
                             ignore_index=True
@@ -92,7 +104,8 @@ if st.button("Add SKUs"):
             st.session_state.products_df.to_csv(CSV_FILE, index=False)
             st.success("New SKUs scraped and added to CSV!")
 
-# Actualizar SKUs específicos
+
+# --- Actualizar SKUs específicos ---
 st.subheader("Update Specific SKUs")
 skus_to_update = st.text_area("Enter SKUs to update (one per line):")
 
@@ -113,6 +126,14 @@ if st.button("Update These SKUs"):
             with st.spinner(f"Updating {i} of {len(sku_list)} — SKU: {sku}"):
                 try:
                     df = scrape_product_info(sku)
+
+                    # Guardar Item_ID existente
+                    existing_item_id = st.session_state.products_df.loc[
+                        st.session_state.products_df["SKU"] == sku, "Item_ID"
+                    ].values
+                    if len(existing_item_id) > 0:
+                        df["Item_ID"] = existing_item_id[0]
+
                     st.session_state.products_df = st.session_state.products_df[
                         st.session_state.products_df["SKU"] != sku
                     ]
@@ -125,6 +146,7 @@ if st.button("Update These SKUs"):
         st.session_state.products_df.to_csv(CSV_FILE, index=False)
         st.success("Selected SKUs updated!")
         st.rerun()
+
 
 # --- Publicar productos en Mercado Libre ---
 st.subheader("Publicar productos en Mercado Libre")
@@ -144,13 +166,13 @@ if st.button("Publicar TODOS los productos"):
                 st.session_state.products_df["SKU"] = st.session_state.products_df["SKU"].astype(str).str.strip()
                 st.session_state.products_df["Item_ID"] = st.session_state.products_df["Item_ID"].astype("string")
 
-                resultados = publish_products(CSV_FILE, access_token, skus=sku_list)
+                resultados = publish_or_update_products(CSV_FILE, access_token, skus=sku_list)
 
                 errores = [r for r in resultados if r.get("error") and isinstance(r["error"], str) and r["error"].strip()]
 
                 for r in resultados:
                     sku_str = str(r["SKU"]).strip()
-                    item_id = r.get("item_id", "")
+                    item_id = str(r["item_id"]).strip()
                     if item_id is None:
                         item_id = ""
 
@@ -185,7 +207,7 @@ if st.button("Publicar estos SKUs"):
         else:
             with st.spinner(f"Publicando {len(sku_list)} productos..."):
                 try:
-                    resultados = publish_products(CSV_FILE, access_token, skus=sku_list)
+                    resultados = publish_or_update_products(CSV_FILE, access_token, skus=sku_list)
 
                     # Asegurar que columnas sean string para evitar warning
                     st.session_state.products_df["SKU"] = st.session_state.products_df["SKU"].astype(str).str.strip()
