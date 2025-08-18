@@ -55,6 +55,7 @@ def publish_products(csv_file, access_token, skus=None):
             "buying_mode": "buy_it_now",
             "condition": "new",
             "listing_type_id": "gold_special",
+            # Categoria será decidida por ChatGPT en un futuro. Por ahora es fija.
             #"category_id": guess_category(row["Name"]),
             "category_id": "MLM3530",
             "description": {
