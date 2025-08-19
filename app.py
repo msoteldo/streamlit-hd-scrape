@@ -1,5 +1,5 @@
 import streamlit as st
-from scraper_local import scrape_product_info
+from scraper import scrape_product_info
 from publish_test import publish_or_update_products  # función que acepta lista de SKUs y devuelve [{SKU, item_id},...]
 import pandas as pd
 import os
